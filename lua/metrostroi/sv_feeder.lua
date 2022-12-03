@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------------------
 --                          Творческое объединение "MetroPack"
---	Скрипт написан в 2021 году для аддона Metrostroi.
+--	Скрипт написан в 2021 году для карты gm_metro_minsk_1984.
+--  В 2022 выделен в отдельный аддон для дополнения Metrostroi.
 --	Аддон реализует токоразделы, разделяя контактный рельс на учатки(фидеры), 
 --  с независимым напряжением.
 --	Автор: 	klusandr
@@ -9,31 +10,61 @@
 --  Дополнительная информация в файле lua/licence.lua
 -----------------------------------------------------------------------------------------
 
+local filePath = "metrostroi_data/feeder_"..game.GetMap()..".txt";
 
-local function loadFile(path)
-    local data,found
-    if file.Exists(path..".txt", "DATA") then
-        data = util.JSONToTable(file.Read(path..".txt", "DATA"))
-        found = true
-    end
-    if not data and file.Exists(path..".lua", "LUA") then
-        data = util.JSONToTable(file.Read(path..".lua", "LUA"))
-        found = true
-    end
-    
-    return data
+local function checkFile(path)
+    return file.Exists(path, "DATA") or file.Exists(path, "LUA")
 end
 
-local data = loadFile("metrostroi_data/feeder_"..game.GetMap())
-if (not data) then return end       -- Return, if config file dont found
+if (not checkFile(filePath)) then return end       -- Return, if config file dont found
 
 ----   Local functions   ----
+
+-- Logger --
+
+local function log(message, category)
+    if (Metrostroi.Logger) then
+        Metrostroi.Logger.Log(message, category, "Feeders")
+    end   
+end
+
+local function logError(message)
+    log(message, "Error")
+end
+
+local function logInfo(message)
+    log(message, "Info")
+end
+
+----
+
+-- Load data from the file.
+-- (file) - File name.
+-- RETURN - JSON data from file.
+local function loadFile(path)
+    local data,found
+    if file.Exists(path, "DATA") then
+        data = util.JSONToTable(file.Read(path, "DATA"))
+        found = true
+    end
+    if not data and file.Exists(path, "LUA") then
+        data = util.JSONToTable(file.Read(path, "LUA"))
+        found = true
+    end
+    if not found then
+        logError("Configuration file not found. Path: '"..path.."'")
+        return
+    elseif not data then
+        logError("Configuration parse JSON error")
+        return
+    end
+    return data
+end
 
 -- Save data in file.
 -- (path) - Full path to file, no extension.
 -- (data) - Data written to file.
 local function saveFile(path, data)
-    path = path..".txt"
     if not file.Exists(path, "DATA") then
         file.Append(path)
     end
@@ -118,6 +149,7 @@ function Metrostroi.Feeder.Initialize()
     Metrostroi.Voltages = {}
     Metrostroi.VoltageRestoreTimers = {}
 
+    local data = loadFile(filePath)
     local currentLimit = GetConVarNumber("metrostroi_current_limit")
     local voltage = math.max(0,GetConVarNumber("metrostroi_voltage"))
     
@@ -137,7 +169,7 @@ function Metrostroi.Feeder.Initialize()
         end
     end
 
-    print("Metrostroi: Feeder loaded")
+    logInfo("Feeders is loaded")
 end
 
 -- Set current limit on feeder.
@@ -310,6 +342,8 @@ function Metrostroi.Feeder.GetInfoString(selectFeeder)
     return info
 end
 
+-- Returns an info string about the binding of the train to the feeder.
+-- RETURN - String whis info.
 function Metrostroi.Feeder.GetTrainInfoString(train)
 	local info = "Feeder train info : \n"
 	if (!IsValid(train) or !train.WagonList) then return end
@@ -507,6 +541,9 @@ end
 
 ----   Console command definition   ----
 
+-- Set the voltage value on the feeder.
+-- (args[1]) - Feeder number.
+-- (args[2]) - Value.
 concommand.Add("metrostroi_current_limit_feeder", function(ply, _, args)
     if (ply and ply != NULL and not ply:IsAdmin()) then return end
     
@@ -517,6 +554,9 @@ concommand.Add("metrostroi_current_limit_feeder", function(ply, _, args)
     end
 end)
 
+-- Set the current limit on the feeder.
+-- (args[1]) - Feeder number.
+-- (args[2]) - Value.
 concommand.Add("metrostroi_voltage_feeder", function(ply, _, args)
     if (ply and ply != NULL and not ply:IsAdmin()) then return end
     if (args[1] == "all") then
@@ -527,6 +567,8 @@ concommand.Add("metrostroi_voltage_feeder", function(ply, _, args)
     
 end)
 
+-- Turn off the feeder.
+-- (args[1]) - Feeder number.
 concommand.Add("metrostroi_feeder_on", function(ply, _, args)
     if (ply and ply != NULL and not ply:IsAdmin()) then return end
     if (args[1] == "all") then
@@ -536,6 +578,8 @@ concommand.Add("metrostroi_feeder_on", function(ply, _, args)
     end
 end)
 
+-- Turn on the feeder.
+-- (args[1]) - Feeder number.
 concommand.Add("metrostroi_feeder_off", function(ply, _, args)
     if (ply and ply != NULL and not ply:IsAdmin()) then return end
     if (args[1] == "all") then
@@ -545,28 +589,33 @@ concommand.Add("metrostroi_feeder_off", function(ply, _, args)
     end
 end)
 
+-- Print actual information for all feeders.
 concommand.Add("metrostroi_feeder_info", function(ply, _, args)
     local printString = Metrostroi.Feeder.GetInfoString(tonumber(args[1]))
 	if (ply == NULL) then print(printString); return end
     if (printString) then ExtendedChatPrintConfig(ply, printString, true, "\n") end
 end)
 
+-- Print configuration for all feeders.
 concommand.Add("metrostroi_feeder_config", function(ply, _, args)
     local printString = Metrostroi.Feeder.GetConfigString(tonumber(args[1]))
 	if (ply == NULL) then print(printString); return end
     if (printString) then ExtendedChatPrintConfig(ply, printString, true, "\n") end
 end)
 
+-- Load the feeder config.
 concommand.Add("metrostroi_feeder_load", function(ply, _, _)
     if (ply and ply != NULL and not ply:IsAdmin()) then return end
     Metrostroi.Feeder.Load()
 end)
 
+-- Save the feeder config.
 concommand.Add("metrostroi_feeder_save", function(ply, _, _)
     if (ply and ply != NULL and not ply:IsAdmin()) then return end
     Metrostroi.Feeder.Save()
 end)
 
+-- Print train binding to the feeders. The train must be in the center of your sight.
 concommand.Add("metrostroi_feeder_train_info", function(ply, _, _)
 	if (ply == NULL) then return end
 	
@@ -578,6 +627,5 @@ concommand.Add("metrostroi_feeder_train_info", function(ply, _, _)
 	end	
 end)
 
-
 -- Initialization
-Metrostroi.Feeder.Initialize()
+timer.Simple(2, Metrostroi.Feeder.Initialize)
