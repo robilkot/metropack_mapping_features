@@ -1,47 +1,89 @@
 -----------------------------------------------------------------------
 --                          Творческое объединение "MetroPack"
---	Скрипт написан в 2021 году для аддона Metrostroi.
---	Аддон реализует необходимую логику для пикетов.
+--	Скрипт написан в 2021 году для карты gm_metro_minsk_1984.
+--  В 2022 выделен в отдельный аддон для дополнения Metrostroi.
+--	Аддон добавляет в игру туннельные пикеты.
 --	Автор: 	klusandr
 --	Steam: 	https://steamcommunity.com/id/andr47/
 --	VK:		https://vk.com/andreyklysevich
 --  Дополнительная информация в файле lua/licence.lua
 -----------------------------------------------------------------------
 
+-- Logger --
 
-local function getFile(path,name,id)
+local function log(message, category)
+    if (Metrostroi.Logger) then
+        Metrostroi.Logger.Log(message, category, "Pickets")
+    end   
+end
+
+local function logError(message)
+    log(message, "Error")
+end
+
+local function logInfo(message)
+    log(message, "Info")
+end
+
+local filePath = "metrostroi_data/picket_"..game.GetMap()..".txt";
+
+----
+
+-- Check exists file.
+local function checkFile(path)
+    return file.Exists(path, "DATA") or file.Exists(path, "LUA")
+end
+
+-- Load data from the file.
+-- (file) - File name.
+-- RETURN - JSON data from file.
+local function loadFile(path)
     local data,found
-    if file.Exists(Format(path..".txt",name),"DATA") then
-        --print(Format("Metrostroi: Loading %s definition...",id))
-        data= util.JSONToTable(file.Read(Format(path..".txt",name),"DATA"))
+    if file.Exists(path, "DATA") then
+        data = util.JSONToTable(file.Read(path, "DATA"))
         found = true
     end
-    if not data and file.Exists(Format(path..".lua",name),"LUA") then
-        --print(Format("Metrostroi: Loading default %s definition...",id))
-        data= util.JSONToTable(file.Read(Format(path..".lua",name),"LUA"))
+    if not data and file.Exists(path, "LUA") then
+        data = util.JSONToTable(file.Read(path, "LUA"))
         found = true
     end
     if not found then
-        --print(Format("%s definition file not found: %s",id,Format(path,name)))
+        logError("Configuration file not found. Path: '"..path.."'")
         return
     elseif not data then
-        --print(Format("Parse error in %s %s definition JSON",id,Format(path,name)))
+        logError("Configuration parse JSON error")
         return
     end
     return data
 end
 
-local function loadPickets(name, keep)
-    name = name or game.GetMap()
+-- Save data in the file.
+-- (path) - Full path to file.
+-- (data) - Data written to file.
+local function saveFile(path, data)
+    file.Write(path, data)
+end
 
-    local pickets_ents = ents.FindByClass("gmod_track_picket")
-    for k,v in pairs(pickets_ents) do SafeRemoveEntity(v) end
+-- Remove the file.
+-- (file) - File name.
+local function removeFile(path)
+    file.Delete(path)
+end
 
-    if keep then return end
-    local pickets = getFile("metrostroi_data/picket_%s",name,"Picket")
-    if not pickets then return end
+Metrostroi.Picket = {}
 
-    for k,v in pairs(pickets) do
+-- Load pickets.
+function Metrostroi.Picket.Load()
+    if (not checkFile(filePath)) then return end
+
+    for _, ent in pairs(ents.FindByClass("gmod_track_picket")) do
+        SafeRemoveEntity(ent) 
+    end
+
+    local data = loadFile(filePath)
+    if not data then return end
+
+    for k,v in pairs(data) do
         local ent = ents.Create("gmod_track_picket")
         if IsValid(ent) then
             ent:SetPos(v.Pos)
@@ -59,57 +101,43 @@ local function loadPickets(name, keep)
             ent:Spawn()
         end
     end
-    
-end
 
-hook.Add("Initialize", "Metrostroi_MapPicketInitialize", function()
-    timer.Simple(2.0, loadPickets)
-end)
+    logInfo("Pickets is loaded")
+end 
 
-
-timer.Simple(1, function()                  --Задержка после загрузки игры
-
-local m_save = Metrostroi.Save
-function Metrostroi.Save(name)
-    m_save(name)
-
-    if not file.Exists("metrostroi_data","DATA") then
-        file.CreateDir("metrostroi_data")
-    end
-    name = name or game.GetMap()
-
-    -- Format signs, signal, switch data
+-- Save pickets.
+function Metrostroi.Picket.Save()
     local pickets = {}
-    local pickets_ents = ents.FindByClass("gmod_track_picket")
     
-    for k,v in pairs(pickets_ents) do
+    for _, ent in pairs(ents.FindByClass("gmod_track_picket")) do
         table.insert(pickets, {
-            Pos = v:GetPos(),
-            Angles = v:GetAngles(),
-            Type = (v.Type ~= 1) and v.Type or nil,
-            YOffset = (v.YOffset ~= 0) and v.YOffset or nil,
-            ZOffset = (v.ZOffset ~= 0) and v.ZOffset or nil,
-            PAngle = (v.PAngle ~= 0) and v.PAngle or nil,
-            YAngle = (v.YAngle ~= 0) and v.YAngle or nil,
-            Left = (v.Left ~= false) and v.Left or nil,
-            RightNumber = v.RightNumber,
-            LeftNumber = v.LeftNumber,w
+            Pos = ent:GetPos(),
+            Angles = ent:GetAngles(),
+            Type = (ent.Type ~= 1) and ent.Type or nil,
+            YOffset = (ent.YOffset ~= 0) and ent.YOffset or nil,
+            ZOffset = (ent.ZOffset ~= 0) and ent.ZOffset or nil,
+            PAngle = (ent.PAngle ~= 0) and ent.PAngle or nil,
+            YAngle = (ent.YAngle ~= 0) and ent.YAngle or nil,
+            Left = (ent.Left ~= false) and ent.Left or nil,
+            RightNumber = ent.RightNumber,
+            LeftNumber = ent.LeftNumber,
         })
     end
-    local data = util.TableToJSON(pickets, true)
-    file.Write(string.format("metrostroi_data/picket_%s.txt", name), data)
+
+    print("Metrostroi: Saving pickets definition...")
+
+    if (not table.IsEmpty(pickets)) then
+        saveFile(filePath, util.TableToJSON(pickets, true))
+        print("Saved to "..filePath)
+    else
+        removeFile(filePath);
+        print("File remove "..filePath)
+    end
 end
 
-local m_load = Metrostroi.Load
-function Metrostroi.Load(name,keep_signs)
-    m_load(name,keep_signs)
-    loadPickets(name,keep_signs)
-end
-
-end)                                        --Окончание тела функции с задержкой
-
-Metrostroi.Picket = {}
-
+-- Teleport player to the picket.
+-- (rightNumber) - Right picket number or Left picket number if (leftNumber) is nil.
+-- (leftNumber) - Left picket number.
 function Metrostroi.Picket.TeleportTo(ply, rightNum, leftNum)
     leftNum = leftNum or rightNum
 
@@ -124,6 +152,9 @@ function Metrostroi.Picket.TeleportTo(ply, rightNum, leftNum)
     end
 end
 
+-- Teleport player to the picket.
+-- (args[1]) - Right picket number or Left picket number if (args[2]) is nil.
+-- (args[2]) - Left picket number.
 concommand.Add("picket_tp", function (ply, _, args)
     local rightNum = args[2] or args[1]
     local leftNum = args[1]
@@ -131,3 +162,18 @@ concommand.Add("picket_tp", function (ply, _, args)
     Metrostroi.Picket.TeleportTo(ply, rightNum, leftNum)
 end)
 
+timer.Simple(1, function()                  --Задержка после загрузки игры
+    local m_save = Metrostroi.Save
+    function Metrostroi.Save(name)
+        m_save(name)
+        Metrostroi.Picket.Save()
+    end
+
+    local m_load = Metrostroi.Load
+    function Metrostroi.Load(name, keep_signs)
+        m_load(name,keep_signs)
+        Metrostroi.Picket.Load()
+    end
+end)                                        --Окончание тела функции с задержкой
+
+timer.Simple(2, Metrostroi.Picket.Load)
